@@ -1,0 +1,28 @@
+# 环境
+.env
+venv/
+__pycache__/
+*.pyc
+
+# 向量库（可重新生成）
+chroma_db/
+
+# 日志
+logs/
+*.log
+
+# 模型文件（太大，需单独下载）
+model/bge-reranker-v2-m3/
+model/*.safetensors
+
+# IDE
+.idea/
+.vscode/
+
+# 评测报告
+rag/eval/reports/
+agent/eval/reports/
+
+# 系统
+.DS_Store
+Thumbs.db

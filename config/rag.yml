@@ -1,0 +1,14 @@
+chat_model_name: qwen3.8-max
+embedding_model_name: text-embedding-v4
+api_key_env: DASHSCOPE_API_KEY
+base_url: https://ws-l62nzm22akjnw8u1.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+enable_query_rewrite: true #是否允许查询改写成多条
+rewrite_query_num: 3 #查询改写成几条
+enable_rerank: true #是否排序
+rerank_model: "D:/AI学习/智扫通Agent/model/bge-reranker-v2-m3"   # 中文场景首选，2.29GB
+final_top_k: 5                          # 重排后最终保留数量（精筛）
+min_reliable_score: 0.6 #最低的可靠的分数，得分必须大于这个分数才可靠
+enable_hybrid_search: true       # bm25检索开关
+bm25_top_k: 10                   # BM25 每路召回数量
+rrf_k: 60                        # RRF 平滑常数
+max_history_turns: 5 #保留最近5轮对话

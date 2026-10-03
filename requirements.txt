@@ -1,0 +1,14 @@
+langchain>=0.3.0
+langgraph>=0.2.0
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+chromadb>=0.4.0
+sentence-transformers>=2.7.0
+rank_bm25>=0.2.2
+jieba>=0.42.1
+streamlit>=1.30.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+dashscope>=1.20.0
+modelscope>=1.9.0
+pypdf>=4.0.0
