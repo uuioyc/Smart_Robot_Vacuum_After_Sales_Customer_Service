@@ -11,6 +11,7 @@ from agent.tools.agent_tools import get_user_location, get_current_month
 from agent.tools.agent_tools import fetch_external_data, fill_context_for_report
 from agent.tools.middleware import log_before_model, monitor_tool, report_prompt_switch
 from langchain_core.messages import AIMessageChunk, HumanMessage
+SUMMARY_UPDATE_INTERVAL = 3   # 每 3 轮更新一次摘要
 
 class ReactAgent:
     def __init__(self):
@@ -27,19 +28,25 @@ class ReactAgent:
         self.workflow = ReportWorkflow()
         self.max_history_turns = rag_conf['max_history_turns']
         self.summary_cache = {}
+
     def _summarize_history(self, old_messages: list, session_id: str = "default") -> str:
-        """把较早的对话压缩成一段摘要"""
+        """把较早的对话压缩成一段摘要（带缓存）"""
         if not old_messages:
             return ""
+
+        # 缓存命中：当前 old_messages 和上次摘要时长度一致
         cache = self.summary_cache.get(session_id)
-        if cache and cache['len'] >= len(old_messages):
-            return cache['summary']
+        if cache and len(old_messages) - cache["len"] < SUMMARY_UPDATE_INTERVAL:
+            return cache["summary"]
+
         text = "\n".join([
-            f"{m['role']}: {m['content'][:200]}"
+            f"{'用户' if m['role'] == 'user' else 'AI'}: {m['content'][:200]}"
             for m in old_messages
         ])
-        prompt = f"""请用100字以内，总结以下对话的核心信息（用户身份、已讨论主题、待解决的问题）：
-        {text}："""
+        prompt = f"""请用 100 字以内，总结以下对话的核心信息（用户身份、已讨论主题、待解决的问题）：
+        {text}
+        摘要："""
+
         try:
             response = chat_model.invoke([HumanMessage(content=prompt)])
             summary = response.content.strip()
