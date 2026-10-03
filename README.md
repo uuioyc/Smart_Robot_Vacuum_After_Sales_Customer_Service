@@ -149,8 +149,8 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/你的用户名/智扫通Agent.git
-cd 智扫通Agent
+git clone https://github.com/uuioyc/Smart_Robot_Vacuum_After_Sales_Customer_Service.git
+cd Smart_Robot_Vacuum_After_Sales_Customer_Service
 
 # 2. 创建虚拟环境
 conda create -n zzz python=3.10
