@@ -73,7 +73,7 @@ class RagSummarizeService(object):
         """
             fusion会把向量检索和bm25检索得到的两路结果按照得分排序返回前top_n个
             然后再rerank得到钱top_k个
-            理论上有3个重写问题，每个问题两路，每路20篇，一共3 * 2 * 20 = 120篇
+            理论上有3个重写问题，每个问题两路，每路10篇，一共3 * 2 * 10 = 60篇
         """
         for q in queries:
             vec_docs = self.retriever.invoke(q)
@@ -81,7 +81,7 @@ class RagSummarizeService(object):
             if self.enable_hybrid and self.bm25_retriever:
                 bm25_docs = self.bm25_retriever.search(q, k=self.bm25_top_k)
 
-                merged = rrf_fusion([vec_docs, bm25_docs], k=self.rrf_k, top_n=20)
+                merged = rrf_fusion([vec_docs, bm25_docs], k=self.rrf_k, top_n=15) #现在两路只有一共20条
 
             for doc in merged:
                 if doc.page_content not in seen_contents:

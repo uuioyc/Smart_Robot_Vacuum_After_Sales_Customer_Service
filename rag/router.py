@@ -48,7 +48,7 @@ class IntentRouter:
     def _rewrite_query(self, query: str, history: list) -> str:
         if len(query) >= 20 or not history:
             return query
-        recent = history[-6:]
+        recent = history[-6:] #三轮对话 就是6条
         history_text = "\n".join([
             f"{'用户' if m['role'] =='user' else 'AI'}: {m['content'][:200]}"
             for m in recent

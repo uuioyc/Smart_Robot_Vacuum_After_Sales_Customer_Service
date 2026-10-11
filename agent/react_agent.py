@@ -36,6 +36,11 @@ class ReactAgent:
 
         # 缓存命中：当前 old_messages 和上次摘要时长度一致
         cache = self.summary_cache.get(session_id)
+        """
+            history是一直增长的，所以old_messages也是一直增长的，第一轮摘要以后，每增长3条，也就是两轮对话才更新摘要
+            阈值太小，缓存几乎不命中；阈值太大，摘要更新太慢，可能丢失上下文。
+            其实这里3 4都一样，因为增量是偶数，不会有3的情况
+        """
         if cache and len(old_messages) - cache["len"] < SUMMARY_UPDATE_INTERVAL:
             return cache["summary"]
 
@@ -91,7 +96,7 @@ class ReactAgent:
             window_size = self.max_history_turns * 2
             if len(history) > window_size:
                 recent = history[- window_size:]
-                old = history[: - window_size]
+                old = history[: - window_size] #old是超长部分，会大于10
             else:
                 recent = history
                 old = []

@@ -16,7 +16,7 @@ from langchain_core.documents import Document
 def rrf_fusion(
         doc_lists: list[list[Document]],
         k: int = 60,
-        top_n: int = 20,
+        top_n: int = 15,
 ) -> list[Document]:
     """
     RRF融合多路检索结果
@@ -44,9 +44,10 @@ def rrf_fusion(
 
     #按RRF 分数降序
     sorted_keys = sorted(scores.keys(), key = lambda x : scores[x], reverse=True)
-
+    #scores存的是每个内容的得分，sorted_keys是将内容按照各自的得分排序
+    #result是取的内容的前topn个
     result = [doc_map[key] for key in sorted_keys[:top_n]]
-
+    #再将对应的分数放回metadata
     for doc in result:
         doc.metadata["rrf_score"] = round(scores[key], 6)
     #本项目是两路融合，理论最高分只有0.0328
