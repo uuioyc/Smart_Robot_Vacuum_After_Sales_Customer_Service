@@ -34,6 +34,22 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
 
+
+class Session(Base):
+    __tablename__ = "session"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    title = Column(String, default="新对话")
+    created_at = Column(DateTime, default=datetime.now)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, index=True, nullable=False)
+    role = Column(String, nullable=False)
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
 def init_db():
     Base.metadata.create_all(bind=engine)
 

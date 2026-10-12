@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware   # ← 加到顶部 import 区
 from auth import hash_password, verify_password, create_access_token, decode_token
-from database import User, init_db, get_db
+from database import User, init_db, get_db, Message, Session as ChatSession, SessionLocal
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
@@ -51,10 +51,17 @@ class TokenResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: str
+    session_id: Optional[int] = None
     history: Optional[list[dict[str, str]]] = []
     #dict[str,str]前一个str是键的类型，后一个是值的类型
 
+class CreateSessionRequest(BaseModel):
+    title: str = "新对话"
+
+class SessionResponse(BaseModel):
+    id: int
+    title: str
+    created_at: str
 # ===== 认证依赖 =====
 # HTTPBearer：从请求头 Authorization 里提取 "Bearer xxx"
 security = HTTPBearer()
@@ -90,7 +97,84 @@ def get_current_user(
         )
     return user
 
+@app.get("/api/sessions") #查询所有会话
+def list_sessions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    sessions = db.query(ChatSession).filter(
+        ChatSession.user_id == user.id
+    ).order_by(ChatSession.created_at.desc()).all()
+    return[
+        {
+            "id": s.id,
+            "title": s.title,
+            "created_at": s.created_at.isoformat()
+        }
+        for s in sessions
+    ]
 
+@app.post("/api/sessions") #创建新会话
+def create_session(
+        req: CreateSessionRequest,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+    session = ChatSession(
+        user_id = user.id,
+        title = req.title
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return{
+        "id": session.id,
+        "title": session.title,
+        "created_at": session.created_at.isoformat()
+    }
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(
+        session_id: int,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+    """删除会话连带所有消息"""
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == user.id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    #先删除消息再删除会话
+    db.query(Message).filter(Message.session_id == session_id).delete()
+    db.delete(session)
+    db.commit()
+    return {"message": "删除成功"}
+
+@app.get("/api/sessions/{session_id}/messages")
+def get_session_messages(
+        session_id: int,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+    """获取某个会话的所有信息"""
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == user.id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    messages = db.query(Message).filter(
+        Message.session_id == session_id
+    ).order_by(Message.created_at.asc()).all()
+    return [
+        {
+            "id": m.id,
+            "role": m.role,
+            "content": m.content
+        }
+        for m in messages
+    ]
 @app.post("/api/register", response_model=TokenResponse)
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
     """
@@ -145,15 +229,56 @@ def root():
     return {"message": "Hello, Agent API!"}
 
 @app.post("/api/chat")
-def chat(req: ChatRequest, user: User = Depends(get_current_user)):
+def chat(
+        req: ChatRequest,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+    is_new_session = False
+    if req.session_id is None:
+        title = req.message[:20] if len(req.message) > 20 else req.message
+        new_session = ChatSession(user_id = user.id, title = title)
+        db.add(new_session)
+        db.commit()
+        db.refresh(new_session)
+        #提交后需要"数据库自动生成"的字段比如id，时间等 都需要refresh，从数据库重新读一遍。
+        session_id = new_session.id
+        is_new_session = True
+    else:
+        session = db.query(ChatSession).filter(
+            ChatSession.id == req.session_id,
+            ChatSession.user_id == user.id
+        ).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        session_id = req.session_id
+
+    user_msg = Message(session_id = session_id, role = "user", content = req.message)
+    db.add(user_msg)
+    db.commit()
     def event_stream():
+        full_response = ""
+        inner_db = SessionLocal()
+        """
+            FastAPI 的 Depends(get_db) 有个特点：
+            普通接口：db 在接口返回后自动关闭 
+            StreamingResponse：生成器执行时，依赖可能已经"过期"或关闭
+            表现：可能会报 Session is closed 或类似的错误。
+            解决办法是在 event_stream 里重新创建一个 db 会话：
+        """
+        if is_new_session:
+            yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id})}\n\n"
         for chunk in agent.execute_stream(
                 req.message,
-                session_id=req.session_id,
+                session_id=str(session_id),
                 history=req.history
         ):
+            full_response += chunk
             yield f"data: {json.dumps({'content':chunk}, ensure_ascii=False)}\n\n" #SSE格式
             #SSE是一种格式协议
+        ai_msg = Message(session_id = session_id, role = "assistant", content = full_response)
+        inner_db.add(ai_msg)
+        inner_db.commit()
         yield "data: [DONE]\n\n"
     return StreamingResponse( #流式返回通用工具
         event_stream(),

@@ -42,6 +42,7 @@ const messages = ref([])
 const loading = ref(false)
 const token = localStorage.getItem('token')
 const router = useRouter()
+const currentSessionId = ref(null)     // 当前会话 id
 
 const handleLogout = () => {
   localStorage.removeItem('token')
@@ -86,7 +87,7 @@ const send = async () =>{
       },
       body:JSON.stringify({
         message:userMessage,
-        session_id:'test',
+        session_id:currentSessionId.value,
         history:history
       })
     })
@@ -98,7 +99,7 @@ const send = async () =>{
     let buffer = ''
 
     while(true){
-      const {done, value} = await reader.read()
+      const {done, value} = await reader.read() //反复要数据
       if (done) break;
       //这个done是read的返回里面带的，就是看读没读完
 
@@ -118,7 +119,13 @@ const send = async () =>{
 
         try {
           const obj = JSON.parse(data)
-          messages.value[messages.value.length - 1].content += obj.content
+          if(obj.type == 'session_id'){
+            currentSessionId.value = obj.session_id
+            continue
+          }
+          if (obj.content){
+            messages.value[messages.value.length - 1].content += obj.content
+          }
         }catch (e) {}
       }
     }
