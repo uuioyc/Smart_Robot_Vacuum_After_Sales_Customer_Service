@@ -26,3 +26,6 @@ agent/eval/reports/
 # 系统
 .DS_Store
 Thumbs.db
+
+*.db
+backend/app.db
