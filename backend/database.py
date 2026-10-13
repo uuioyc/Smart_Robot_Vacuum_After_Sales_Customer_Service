@@ -4,7 +4,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 
 #SQLite数据库文件路径，放在backend下面
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -49,6 +49,7 @@ class Message(Base):
     session_id = Column(Integer, index=True, nullable=False)
     role = Column(String, nullable=False)
     content = Column(String, nullable=False)
+    sources = Column(Text, default="[]")
     created_at = Column(DateTime, default=datetime.now)
 def init_db():
     Base.metadata.create_all(bind=engine)

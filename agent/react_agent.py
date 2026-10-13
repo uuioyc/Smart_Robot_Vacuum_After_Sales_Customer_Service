@@ -11,6 +11,8 @@ from agent.tools.agent_tools import get_user_location, get_current_month
 from agent.tools.agent_tools import fetch_external_data, fill_context_for_report
 from agent.tools.middleware import log_before_model, monitor_tool, report_prompt_switch
 from langchain_core.messages import AIMessageChunk, HumanMessage
+from agent.tools.agent_tools import get_rag_sources
+
 SUMMARY_UPDATE_INTERVAL = 3   # 每 3 轮更新一次摘要
 
 class ReactAgent:
@@ -65,14 +67,20 @@ class ReactAgent:
             logger.warning(f"[ReactAgent] 摘要失败：{str(e)}")
             return ""
 
-
     def execute_stream(self, query: str, session_id: str = None, history: list = None):
-        # 1. 带历史的意图分类 + 指代消解
+        # ===== 清空本轮开始前的 sources（防止继承上一轮）=====
+        if session_id:
+            from agent.tools.agent_tools import clear_rag_sources
+            clear_rag_sources(str(session_id))
+
+
+        # ===== 1. 意图分类 + 指代消解 =====
         intent_result, re_written = self.router.classify_with_history(query, history)
-        # 2. 工具路由
+
+        # ===== 2. 工具路由 =====
         allowed_tools = route_tools(intent_result.intent, self.all_tools)
 
-        # 3. 分支处理
+        # ===== 3. 分支处理 =====
         if intent_result.intent == "small_talk":
             agent = create_agent(
                 model=chat_model,
@@ -90,91 +98,141 @@ class ReactAgent:
                 middleware=self.middleware,
                 tools=allowed_tools
             )
-        #4. 构建含历史的messages
+
+        # ===== 4. 构建含历史的 messages =====
         messages = []
         if history:
             window_size = self.max_history_turns * 2
             if len(history) > window_size:
-                recent = history[- window_size:]
-                old = history[: - window_size] #old是超长部分，会大于10
+                recent = history[-window_size:]
+                old = history[:-window_size]
             else:
                 recent = history
                 old = []
+
             if old:
                 summary = self._summarize_history(old, session_id)
                 if summary:
-                    messages.append({
-                        "role": "system",
-                        "content": f"【历史对话摘要】：{summary}"
-                    })
+                    messages.append({"role": "system", "content": f"【历史对话摘要】：{summary}"})
+
             for msg in recent:
-                messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
+                messages.append({"role": msg["role"], "content": msg["content"]})
+
         messages.append({"role": "user", "content": re_written})
 
-        input_dict = {"messages":messages}
+        input_dict = {"messages": messages}
         config = {"configurable": {"session_id": session_id}} if session_id else {}
 
         chunks = agent.stream(
             input=input_dict,
             stream_mode="messages",
-            context={"report": False},  # ← 别忘这个
+            context={"report": False},
             config=config
         )
 
-        thinking_buffer = ""
-        answer_started = False
-        answer_buffer = ""  # 已发送的答案内容
+        # ===== 状态变量 =====
+        thinking_buffer = ""  # 累积 thinking 内容
+        answer_started = False  # thinking 阶段是否结束
+        pending = ""  # 答案阶段开始前，待判断的内容（可能是 JSON）
+        answer_buffer = ""  # 已输出的答案（用于 diff）
 
         for chunk in chunks:
             msg, metadata = chunk
+
+            # 过滤非目标消息
             if not isinstance(msg, AIMessageChunk):
                 continue
-            # 如果有 tool_calls 或 tool_call_chunks，说明这条消息是工具调用阶段，跳过
             if getattr(msg, "tool_call_chunks", None) or getattr(msg, "tool_calls", None):
-                continue
-            if getattr(msg, "tool_calls", None):
                 continue
             if not msg.content:
                 continue
 
             content = msg.content
 
-            # 循环内 answer_started 之后：
+            # ==================== 阶段 1：thinking ====================
             if not answer_started:
-                thinking_buffer += content
+                if content.startswith(thinking_buffer):
+                    thinking_buffer = content
+                else:
+                    thinking_buffer += content
 
                 if "</thinking>" in thinking_buffer:
-                    parts = thinking_buffer.split("</thinking>", 1)
-                    thinking_text = parts[0].replace("<thinking>", "").strip()
-                    answer_text = parts[1] if len(parts) > 1 else ""
+                    thinking_text, _, after = thinking_buffer.partition("</thinking>")
+                    thinking_text = thinking_text.replace("<thinking>", "").strip()
 
                     if thinking_text:
                         yield {"type": "thinking", "content": thinking_text}
 
                     answer_started = True
-                    if answer_text:
-                        answer_buffer = answer_text
-                        yield {"type": "content", "content": answer_text}
+                    pending = after  # ← 答案开头内容，暂不输出
                 else:
-                    # thinking 阶段（保持你现在的逻辑）
-                    ...
-            else:
-                # ===== answer 阶段：做 diff =====
-                new_content = content
-                if new_content.startswith(answer_buffer):
-                    # 全量返回 → 只 yield 新增部分
-                    delta = new_content[len(answer_buffer):]
-                    answer_buffer = new_content
-                else:
-                    # 增量返回 → 直接 yield
-                    delta = new_content
-                    answer_buffer += new_content
+                    clean = thinking_buffer.replace("<thinking>", "")
+                    if clean.strip():
+                        yield {"type": "thinking", "content": clean.strip()}
+                continue
 
-                if delta:
-                    yield {"type": "content", "content": delta}
+            # ==================== 阶段 2：pending 判断 ====================
+            if pending is not None:
+                # 判断增量/全量
+                if content.startswith(pending):
+                    pending = content
+                else:
+                    pending += content
+
+                stripped = pending.lstrip()
+
+                # 全是空白 → 继续等
+                if not stripped:
+                    continue
+
+                # 以 { 开头 → JSON，等 }
+                if stripped.startswith("{"):
+                    if "}" not in pending:
+                        continue  # 继续攒
+                    # JSON 结束，丢弃 JSON
+                    idx = pending.index("}")
+                    after = pending[idx + 1:]
+                    pending = None
+                    if after.strip():
+                        answer_buffer = after
+                        yield {"type": "content", "content": after}
+                    continue
+
+                # 其他 → 正常答案，开始输出
+                pending = None
+                answer_buffer = stripped
+                yield {"type": "content", "content": stripped}
+                continue
+
+            # ==================== 阶段 3：正常答案输出 ====================
+            if content.startswith(answer_buffer):
+                delta = content[len(answer_buffer):]
+                answer_buffer = content
+            else:
+                delta = content
+                answer_buffer += content
+
+            if delta:
+                yield {"type": "content", "content": delta}
+
+        # ==================== 兜底 1：只有 thinking 没有答案 ====================
+        if not answer_started and thinking_buffer:
+            clean = thinking_buffer.replace("<thinking>", "").replace("</thinking>", "").strip()
+            if clean:
+                yield {"type": "content", "content": clean}
+
+        # ==================== 兜底 2：pending 没处理完 ====================
+        if pending:
+            clean = pending.lstrip()
+            if clean and not clean.startswith("{"):
+                yield {"type": "content", "content": clean}
+
+        # ==================== 流结束，发 sources ====================
+        # ===== 流结束，发 sources =====
+        if session_id:
+            sources = get_rag_sources(str(session_id))
+            if sources:
+                yield {"type": "sources", "content": sources}
 if __name__ == '__main__':
     agent = ReactAgent()
     history = []

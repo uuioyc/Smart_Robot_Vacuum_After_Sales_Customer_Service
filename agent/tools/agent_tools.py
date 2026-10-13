@@ -53,6 +53,23 @@ def get_user_id() -> str:
 def get_current_month() ->str:
     return random.choice(month_arr)
 
+
+def set_rag_sources(session_id: str, sources: list):
+    with _sources_lock:
+        _rag_sources_by_session[session_id] = sources
+    logger.info(f"[Sources] 存入 session={session_id} (type={type(session_id).__name__}), {len(sources)} 条")
+
+def get_rag_sources(session_id: str) -> list:
+    with _sources_lock:
+        result =  _rag_sources_by_session.get(session_id, [])
+    logger.info(
+        f"[Sources] 读取 session={session_id} (type={type(session_id).__name__}), 命中 {len(result)} 条, 现有 keys={list(_rag_sources_by_session.keys())}")
+    return result
+def clear_rag_sources(session_id: str):
+    """清空某个 session 的 sources"""
+    with _sources_lock:
+        _rag_sources_by_session.pop(session_id, None)
+
 def generate_external_data():
     """
     {

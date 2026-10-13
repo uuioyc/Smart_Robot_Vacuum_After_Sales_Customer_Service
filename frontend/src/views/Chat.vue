@@ -63,6 +63,22 @@
 
         <!-- 正式答案 -->
         <span v-if="msg.content">{{ msg.content }}</span>
+
+        <!-- 参考来源 -->
+        <details v-if="msg.sources && msg.sources.length" class="sources-block">
+          <summary>参考来源 ({{ msg.sources.length }} 个文件)</summary>
+          <div class="sources-content">
+            <div v-for="s in msg.sources" :key="s.source" class="source-item">
+              <div class="source-name">
+                {{ s.source }} · {{ s.count }} 段 · 最高分 {{ s.max_score }}
+              </div>
+              <div v-for="c in s.chunks" :key="c.index" class="source-chunk">
+                <div class="chunk-meta">[{{ c.index }}] score = {{ c.rerank_score }}</div>
+                <div class="chunk-snippet">{{ c.snippet }}</div>
+              </div>
+            </div>
+          </div>
+        </details>
     </div>
     </div>
   </div>
@@ -142,7 +158,9 @@ onMounted(async () => {
     const data = await res.json()
     messages.value = data.map(m => ({
       role: m.role,
-      content: m.content
+      content: m.content,
+      thinking: '',
+      sources: m.sources || []      // ← 加这行
     }))
   } catch (e) {
     console.error("加载历史消息失败:", e)
@@ -182,7 +200,9 @@ const handleSwitchSession = async (sessionId) =>{
     const data = await res.json()
     messages.value = data.map(m => ({
       role: m.role,
-      content: m.content
+      content: m.content,
+      thinking: '',
+      sources: m.sources || []
     }))
   }catch (e) {
     console.error("加载消息失败:", e)
@@ -226,7 +246,7 @@ const send = async () =>{
   loading.value = true
 
   //先放一条空的AI消息，等会填字
-  messages.value.push({role:'assistant', content:'', thinking:''})
+  messages.value.push({role:'assistant', content:'', thinking:'', sources: []})
 
   // 组装历史消息（去掉最后两条：当前用户消息 + 空 AI 消息）
   const history = messages.value.slice(0, -2).map(m => ({
@@ -288,6 +308,9 @@ const send = async () =>{
           // 正式答案 → 追加
           if (obj.type === 'content' && obj.content){
             messages.value[messages.value.length - 1].content += obj.content
+          }
+          if (obj.type === 'sources' && obj.content){
+            messages.value[messages.value.length - 1].sources = obj.content
           }
         }catch (e) {}
       }
@@ -594,5 +617,61 @@ h1 {
   background: #f9f9f9;
   padding: 10px;
   border-radius: 6px;
+}
+.sources-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+}
+
+.sources-block summary {
+  cursor: pointer;
+  color: #666;
+  font-size: 13px;
+}
+
+.sources-block summary::before {
+  content: '▶ ';
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+.sources-block[open] summary::before {
+  content: '▼ ';
+}
+
+.sources-content {
+  margin-top: 8px;
+}
+
+.source-item {
+  margin-bottom: 12px;
+  padding: 8px;
+  background: #f9f9f9;
+  border-radius: 6px;
+}
+
+.source-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: #333;
+  margin-bottom: 6px;
+}
+
+.source-chunk {
+  margin: 6px 0;
+  padding-left: 8px;
+  border-left: 2px solid #ddd;
+}
+
+.chunk-meta {
+  font-size: 12px;
+  color: #999;
+}
+
+.chunk-snippet {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
 }
 </style>

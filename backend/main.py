@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware   # ← 加到顶部 import 区
+
+from agent.tools.agent_tools import get_rag_sources
 from auth import hash_password, verify_password, create_access_token, decode_token
 from database import User, init_db, get_db, Message, Session as ChatSession, SessionLocal
 
@@ -171,7 +173,8 @@ def get_session_messages(
         {
             "id": m.id,
             "role": m.role,
-            "content": m.content
+            "content": m.content,
+            "sources": json.loads(m.sources) if m.sources else []  # ← 加这行
         }
         for m in messages
     ]
@@ -277,7 +280,17 @@ def chat(
             if chunk['type'] == 'content':
                 full_response += chunk['content']
             #SSE是一种格式协议
-        ai_msg = Message(session_id = session_id, role = "assistant", content = full_response)
+        sources = get_rag_sources(str(session_id))
+
+        # ===== 本轮没检索到新来源 → 继承上一条 assistant 消息的 =====
+        sources = get_rag_sources(str(session_id))
+
+        ai_msg = Message(
+            session_id=session_id,
+            role="assistant",
+            content=full_response,
+            sources=json.dumps(sources, ensure_ascii=False)
+        )
         inner_db.add(ai_msg)
         inner_db.commit()
         yield "data: [DONE]\n\n"
