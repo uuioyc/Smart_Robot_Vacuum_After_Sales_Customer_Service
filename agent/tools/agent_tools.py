@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import streamlit as st
 import os.path
 import random
@@ -9,7 +11,7 @@ from utils.log_handler import logger
 from utils.path_tool import get_abs_path
 import threading
 from langchain_core.runnables import RunnableConfig
-
+import requests
 rag = RagSummarizeService()
 user_ids = ["1001","1002","1003","1004","1005","1006","1007","1008","1009","1010"]
 month_arr = [f"2025-{x:02d}" for x in range(1, 13)]
@@ -37,21 +39,85 @@ def rag_summarize(query: str, config: RunnableConfig) -> str:
     logger.info(f"[RAG Tool] sources: {result['sources']}")
     return result["answer"]
 
+
+
 @tool(description="获取指定城市的天气，以消息字符串形式返回")
-def get_weather(city: str) ->str:
-    return f"城市{city}天气为晴天，气温26摄氏度，空气湿度50%，南风一级，AQI21，最近6小时降雨概率低"
+def get_weather(city: str) -> str:
+    """查询指定城市的实时天气和未来预报"""
+    # 天气描述映射
+    WEATHER_ZH = {
+        "Sunny": "晴",
+        "Clear": "晴",
+        "Partly cloudy": "局部多云",
+        "Cloudy": "多云",
+        "Overcast": "阴",
+        "Mist": "薄雾",
+        "Fog": "雾",
+        "Light rain": "小雨",
+        "Moderate rain": "中雨",
+        "Heavy rain": "大雨",
+        "Thunderstorm": "雷阵雨",
+        "Snow": "雪",
+        # ... 其他
+    }
+    try:
+        # 使用 wttr.in 的 JSON 格式，lang=zh-cn 指定中文输出
+        url = f"https://wttr.in/{city}?format=j1&lang=zh-cn"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        # ---- 解析当前天气 ----
+        current = data['current_condition'][0]
+        weather_desc_en = current['weatherDesc'][0]['value']
+        weather_desc = WEATHER_ZH.get(weather_desc_en, weather_desc_en)  # 一次到位
+        temp_c = current['temp_C']
+        feels_like = current['FeelsLikeC']
+        humidity = current['humidity']
+        wind_speed = current['windspeedKmph']
+        wind_dir = current['winddir16Point']
+
+
+        # ---- 解析今日预报（最高/最低温） ----
+        today = data['weather'][0]
+        max_temp = today['maxtempC']
+        min_temp = today['mintempC']
+        sunrise = today['astronomy'][0]['sunrise']
+        sunset = today['astronomy'][0]['sunset']
+
+        # ---- 组装成自然语言返回给 LLM ----
+        result = (
+            f"【{city} 实时天气】\n"
+            f"天气状况: {weather_desc}\n"
+            f"当前温度: {temp_c}°C (体感 {feels_like}°C)\n"
+            f"今日温度: {min_temp}°C ~ {max_temp}°C\n"
+            f"湿度: {humidity}%\n"
+            f"风向风速: {wind_dir} {wind_speed} km/h\n"
+            f"日出/日落: {sunrise} / {sunset}"
+        )
+
+        logger.info(f"[Weather Tool] 成功获取 {city} 天气: {weather_desc} {temp_c}°C")
+        return result
+
+    except requests.exceptions.Timeout:
+        logger.error(f"[Weather Tool] 请求 {city} 天气超时")
+        return f"抱歉，查询 {city} 天气时网络超时，请稍后重试。"
+    except Exception as e:
+        logger.error(f"[Weather Tool] 查询 {city} 天气失败: {str(e)}")
+        return f"抱歉，暂时无法获取 {city} 的天气信息。"
 
 @tool(description="获取用户所在城市的名称，以纯字符串形式返回")
 def get_user_location() ->str:
     return random.choice(['深圳','合肥','杭州'])
 
-@tool(description="获取用户的ID，以纯字符串形式返回")
-def get_user_id() -> str:
-    return random.choice(user_ids)
+@tool(description="获取当前登录用户的ID")
+def get_user_id(config: RunnableConfig) -> str:
+    user_id = config.get("configurable", {}).get("user_id")
+    return f"100{str(user_id)}" if user_id else ""
 
-@tool(description="获取当前月份，以纯字符串形式返回")
-def get_current_month() ->str:
-    return random.choice(month_arr)
+@tool(description="获取当前月份，格式为 YYYY-MM")
+def get_current_month() -> str:
+    return datetime.now().strftime("%Y-%m")
 
 
 def set_rag_sources(session_id: str, sources: list):

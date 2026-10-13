@@ -62,7 +62,8 @@
         </details>
 
         <!-- 正式答案 -->
-        <span v-if="msg.content">{{ msg.content }}</span>
+        <!-- 正式答案：Markdown 渲染 -->
+    <div v-if="msg.content" class="answer-content" v-html="renderMarkdown(msg.content)"></div>
 
         <!-- 参考来源 -->
         <details v-if="msg.sources && msg.sources.length" class="sources-block">
@@ -102,7 +103,7 @@
 <script setup>
 import {ref, onMounted} from 'vue'
 import { useRouter } from 'vue-router'
-
+import { marked } from 'marked'
 //ref让数据变成响应式,当value改变时，用到他的模版计算属性等等自动更新
 //可以包装任何类型
 
@@ -124,6 +125,12 @@ const suggestions = [
   '小户型适合买什么型号？',
   '最近潮湿该怎么保养？'
 ]
+
+// Markdown 渲染（把 AI 回答从 Markdown 转成 HTML）
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  return marked.parse(text)
+}
 
 // ===== 点击示例 → 自动填入并发送 =====
 const sendSuggestion = (text) => {
@@ -328,168 +335,11 @@ const send = async () =>{
 }
 </script>
 <style scoped>
-.chat-container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  width: 100vh;
-  height: 100vh;               /* 占满整屏高度 */
-  box-sizing: border-box;
-}
-
-h1 {
-  font-size: 20px;
-  margin: 0 0 16px 0;
-  text-align: center;
-  color: #333;
-}
-
-/* ===== 消息区 ===== */
-.messages {
-  flex: 1;                     /* 自动占满剩余高度 */
-  overflow-y: auto;
-  border: 1px solid #ddd;
-  padding: 16px;
-  margin-bottom: 12px;
-  background: #fafafa;
-  border-radius: 8px;
-}
-
-.message {
-  display: flex;
-  margin: 12px 0;
-}
-.message.user {
-  justify-content: flex-end;
-}
-.message.assistant {
-  justify-content: flex-start;
-}
-
-.bubble {
-  text-align: left;
-  max-width: 70%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  word-wrap: break-word;
-  line-height: 1.5;
-  white-space: pre-wrap;       /* 保留换行符 */
-}
-
-/*.message.user是同时拥有message和user属性的*/
-/*.message.user .bubble是message和user下面的 bubble，注意这个空格*/
-.message.user .bubble {
-  background: #007bff;
-  color: white;
-}
-.message.assistant .bubble {
-  background: #f0f0f0;
-  color: #333;
-}
-
-/* ===== 加载动画（跳动小点） ===== */
-.dot-loading {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  height: 20px;
-}
-.dot-loading span {
-  width: 8px;
-  height: 8px;
-  background: #999;
-  border-radius: 50%;
-  animation: bounce 1.4s infinite ease-in-out both;
-}
-.dot-loading span:nth-child(1) { animation-delay: -0.32s; }
-.dot-loading span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes bounce {
-  0%, 80%, 100% {
-    transform: scale(0.6);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-/* ===== 输入区 ===== */
-.input-area {
-  display: flex;
-  gap: 12px;
-  padding: 12px;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.input-area input {
-  flex: 1;
-  padding: 14px 16px;
-  font-size: 15px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-.input-area input:focus {
-  border-color: #007bff;
-}
-.input-area input:disabled {
-  background: #f5f5f5;
-  cursor: not-allowed;
-}
-
-.input-area button {
-  padding: 14px 28px;
-  font-size: 15px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.input-area button:hover:not(:disabled) {
-  background: #0056b3;
-}
-.input-area button:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-.top-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  background: white;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 12px;
-}
-
-.logout-btn {
-  padding: 6px 14px;
-  background: #f0f0f0;
-  color: #333;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.logout-btn:hover {
-  background: #e0e0e0;
-}
-
 /* ===== 整体布局：左右两栏 ===== */
 .app-layout {
   display: flex;
   height: 100vh;
+  overflow: hidden;
 }
 
 /* ===== 左侧栏 ===== */
@@ -500,6 +350,7 @@ h1 {
   display: flex;
   flex-direction: column;
   padding: 12px;
+  flex-shrink: 0;
 }
 
 .new-chat-btn {
@@ -570,38 +421,170 @@ h1 {
   color: #e74c3c;
 }
 
-/* ===== 右侧聊天区（原来是 chat-container）===== */
+/* ===== 右侧聊天区 ===== */
 .chat-container {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0 20px 20px 20px;
+  padding: 16px 24px;
   overflow: hidden;
+  background: #fff;
+  min-width: 0;
+}
+
+/* ===== 顶部栏 ===== */
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.logout-btn {
+  padding: 6px 14px;
+  background: #f0f0f0;
+  color: #333;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.logout-btn:hover {
+  background: #e0e0e0;
+}
+
+/* ===== 消息区 ===== */
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #ccc transparent;
+}
+
+.messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ===== 每条消息 ===== */
+.message {
+  display: flex;
+  margin-bottom: 20px;
+}
+
+.message:last-child {
+  margin-bottom: 0;
+}
+
+.message.user {
+  justify-content: flex-end;
+}
+
+.message.assistant {
+  justify-content: flex-start;
+}
+
+/* ===== 气泡 ===== */
+.bubble {
+  max-width: 78%;
+  padding: 12px 16px;
+  border-radius: 14px;
+  line-height: 1.7;
+  word-wrap: break-word;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  text-align: left;
+}
+
+.message.user .bubble {
+  background: #007bff;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.message.assistant .bubble {
+  background: white;
+  color: #333;
+  border: 1px solid #e8e8e8;
+  border-bottom-left-radius: 4px;
+}
+
+/* ===== 加载动画 ===== */
+.dot-loading {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  height: 20px;
+}
+
+.dot-loading span {
+  width: 8px;
+  height: 8px;
+  background: #999;
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.dot-loading span:nth-child(1) { animation-delay: -0.32s; }
+.dot-loading span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes bounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 /* ===== 思考过程折叠 ===== */
 .thinking-block {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  background: #f8f8f8;
   border-left: 3px solid #ddd;
-  padding-left: 10px;
+  border-radius: 6px;
+  padding: 8px 12px;
 }
 
 .thinking-block summary {
   cursor: pointer;
-  color: #888;
+  color: #666;
   font-size: 13px;
   user-select: none;
   list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .thinking-block summary::before {
-  content: '▶ ';
+  content: '▶';
   font-size: 10px;
-  margin-right: 4px;
+  transition: transform 0.2s;
+  display: inline-block;
 }
 
 .thinking-block[open] summary::before {
-  content: '▼ ';
+  transform: rotate(90deg);
 }
 
 .thinking-block summary:hover {
@@ -609,17 +592,18 @@ h1 {
 }
 
 .thinking-content {
-  margin-top: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #ddd;
   color: #666;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.7;
   white-space: pre-wrap;
-  background: #f9f9f9;
-  padding: 10px;
-  border-radius: 6px;
 }
+
+/* ===== 参考来源 ===== */
 .sources-block {
-  margin-top: 12px;
+  margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid #eee;
 }
@@ -628,50 +612,263 @@ h1 {
   cursor: pointer;
   color: #666;
   font-size: 13px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sources-block summary::before {
-  content: '▶ ';
+  content: '▶';
   font-size: 10px;
-  margin-right: 4px;
+  transition: transform 0.2s;
+  display: inline-block;
 }
 
 .sources-block[open] summary::before {
-  content: '▼ ';
+  transform: rotate(90deg);
 }
 
 .sources-content {
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .source-item {
   margin-bottom: 12px;
-  padding: 8px;
+  padding: 10px 12px;
   background: #f9f9f9;
   border-radius: 6px;
+  border-left: 3px solid #007bff;
 }
 
 .source-name {
   font-weight: 500;
   font-size: 13px;
   color: #333;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .source-chunk {
   margin: 6px 0;
-  padding-left: 8px;
-  border-left: 2px solid #ddd;
+  padding-left: 10px;
+  border-left: 2px solid #e0e0e0;
 }
 
 .chunk-meta {
   font-size: 12px;
   color: #999;
+  margin-bottom: 2px;
 }
 
 .chunk-snippet {
   font-size: 12px;
   color: #666;
-  margin-top: 2px;
+  line-height: 1.5;
+}
+
+/* ===== Markdown 渲染 ===== */
+.answer-content {
+  line-height: 1.8;
+  color: #333;
+  font-size: 14px;
+}
+
+.answer-content h1,
+.answer-content h2,
+.answer-content h3 {
+  margin: 16px 0 10px 0;
+  font-weight: 600;
+  color: #222;
+}
+
+.answer-content h1 { font-size: 18px; }
+.answer-content h2 { font-size: 16px; }
+.answer-content h3 { font-size: 15px; }
+
+.answer-content p {
+  margin: 8px 0;
+}
+
+.answer-content ul,
+.answer-content ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.answer-content li {
+  margin: 4px 0;
+}
+
+.answer-content code {
+  background: #f4f4f4;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+  color: #c7254e;
+}
+
+.answer-content pre {
+  background: #2d2d2d;
+  color: #f0f0f0;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.answer-content pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+.answer-content blockquote {
+  border-left: 3px solid #ddd;
+  padding-left: 12px;
+  color: #666;
+  margin: 10px 0;
+}
+
+.answer-content table {
+  border-collapse: collapse;
+  margin: 12px 0;
+  width: 100%;
+  font-size: 13px;
+  background: white;
+}
+
+.answer-content th,
+.answer-content td {
+  border: 1px solid #e0e0e0;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.answer-content th {
+  background: #f5f7fa;
+  font-weight: 600;
+  color: #333;
+}
+
+.answer-content tr:nth-child(even) td {
+  background: #fafbfc;
+}
+
+.answer-content a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.answer-content a:hover {
+  text-decoration: underline;
+}
+
+.answer-content strong {
+  font-weight: 600;
+  color: #222;
+}
+
+/* ===== 输入区 ===== */
+.input-area {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  flex-shrink: 0;
+}
+
+.input-area input {
+  flex: 1;
+  padding: 14px 16px;
+  font-size: 15px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-area input:focus {
+  border-color: #007bff;
+}
+
+.input-area input:disabled {
+  background: #f5f5f5;
+  cursor: not-allowed;
+}
+
+.input-area button {
+  padding: 14px 28px;
+  font-size: 15px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.input-area button:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.input-area button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* ===== 空对话引导页 ===== */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.welcome h2 {
+  font-size: 22px;
+  color: #333;
+  margin: 0 0 12px 0;
+  font-weight: 500;
+}
+
+.welcome-sub {
+  color: #999;
+  font-size: 14px;
+  margin: 0 0 24px 0;
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.suggestion {
+  padding: 14px 18px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333;
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.suggestion:hover {
+  background: #f0f7ff;
+  border-color: #007bff;
+  color: #007bff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.15);
 }
 </style>

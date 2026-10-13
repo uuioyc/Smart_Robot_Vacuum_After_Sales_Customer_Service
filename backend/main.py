@@ -274,7 +274,8 @@ def chat(
         for chunk in agent.execute_stream(
                 req.message,
                 session_id=str(session_id),
-                history=req.history
+                history=req.history,
+                user_id=str(user.id)
         ):
             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n" #SSE格式
             if chunk['type'] == 'content':

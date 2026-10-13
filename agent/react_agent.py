@@ -67,7 +67,7 @@ class ReactAgent:
             logger.warning(f"[ReactAgent] 摘要失败：{str(e)}")
             return ""
 
-    def execute_stream(self, query: str, session_id: str = None, history: list = None):
+    def execute_stream(self, query: str, session_id: str = None, history: list = None, user_id=None):
         # ===== 清空本轮开始前的 sources（防止继承上一轮）=====
         if session_id:
             from agent.tools.agent_tools import clear_rag_sources
@@ -121,7 +121,12 @@ class ReactAgent:
         messages.append({"role": "user", "content": re_written})
 
         input_dict = {"messages": messages}
-        config = {"configurable": {"session_id": session_id}} if session_id else {}
+        config = {"configurable":
+                      {
+                          "session_id": session_id,
+                          "user_id": user_id
+                      }
+                } if session_id else {}
 
         chunks = agent.stream(
             input=input_dict,
