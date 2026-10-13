@@ -280,8 +280,7 @@ def chat(
             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n" #SSE格式
             if chunk['type'] == 'content':
                 full_response += chunk['content']
-            #SSE是一种格式协议
-        sources = get_rag_sources(str(session_id))
+            #SSE是一种格式协议git rm app.py
 
         # ===== 本轮没检索到新来源 → 继承上一条 assistant 消息的 =====
         sources = get_rag_sources(str(session_id))

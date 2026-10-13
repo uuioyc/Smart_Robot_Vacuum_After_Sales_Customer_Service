@@ -117,13 +117,7 @@ def get_user_id(config: RunnableConfig) -> str:
 
 @tool(description="获取当前月份，格式为 YYYY-MM")
 def get_current_month() -> str:
-    return datetime.now().strftime("%Y-%m")
-
-
-def set_rag_sources(session_id: str, sources: list):
-    with _sources_lock:
-        _rag_sources_by_session[session_id] = sources
-    logger.info(f"[Sources] 存入 session={session_id} (type={type(session_id).__name__}), {len(sources)} 条")
+    return "2025-02"
 
 def get_rag_sources(session_id: str) -> list:
     with _sources_lock:

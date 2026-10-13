@@ -8,3 +8,26 @@
 
 用户问题：{question}
 {format_instructions}
+
+【多意图规则】
+如果用户的问题同时涉及多个领域，请返回多个意图。例如：
+
+- "我上个月用了很多次，最近扫不干净，怎么回事？"
+  → intents = ["usage_report", "troubleshooting"]
+
+- "深圳天气潮湿，我该怎么保养？"
+  → intents = ["weather_adaptation", "knowledge_qa"]
+
+- "小户型买什么型号，滤网多久换？"
+  → intents = ["purchase_advice", "knowledge_qa"]
+
+如果只涉及一个领域，就返回一个。闲聊永远是单独一个 small_talk。
+
+【多意图工具调用规则】
+如果用户的意图涉及多个领域，你必须调用每个领域对应的工具，不能只调一个。
+例如：
+- 意图包含 usage_report → 必须调用 fetch_external_data 查使用记录
+- 意图包含 knowledge_qa / troubleshooting / purchase_advice → 必须调用 rag_summarize
+- 意图包含 weather_adaptation → 必须调用 get_weather
+
+先查完所有需要的数据，再综合回答。

@@ -26,7 +26,7 @@
         <button class="logout-btn" @click="handleLogout">退出登录</button>
       </div>
 
-      <div class="messages">
+    <div class="messages" ref="messagesRef">
     <!-- 空对话时显示引导页 -->
     <div v-if="messages.length === 0" class="welcome">
       <h2>👋 你好，我是扫地机器人客服</h2>
@@ -101,7 +101,7 @@
 
 
 <script setup>
-import {ref, onMounted} from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
 //ref让数据变成响应式,当value改变时，用到他的模版计算属性等等自动更新
@@ -125,7 +125,19 @@ const suggestions = [
   '小户型适合买什么型号？',
   '最近潮湿该怎么保养？'
 ]
+const messagesRef = ref(null)
 
+// 滚动到底部
+const scrollToBottom = async () => {
+  await nextTick()      // 等 DOM 更新完
+  if (messagesRef.value) {
+    messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+  }
+}
+// 监听 messages 变化，自动滚到底
+watch(messages, () => {
+  scrollToBottom()
+}, { deep: true })
 // Markdown 渲染（把 AI 回答从 Markdown 转成 HTML）
 const renderMarkdown = (text) => {
   if (!text) return ''

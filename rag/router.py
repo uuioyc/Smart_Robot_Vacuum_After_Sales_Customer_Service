@@ -23,10 +23,9 @@ IntentType = Literal[
 ]
 
 class IntentResult(BaseModel):
-    intent: IntentType = Field(description="用户的意图分类")
-    confidence: float = Field(description="分类置信度,0-1")
-    reason: str = Field(description="简短分类理由")
-
+    intents: list[IntentType] = Field(description="用户的意图列表（可能多个）")
+    confidence: float = Field(description="分类置信度 0-1")
+    reason: str = Field(description="分类理由")
 INTENT_PROMPT = load_intent_prompts()
 
 class IntentRouter:
@@ -40,11 +39,11 @@ class IntentRouter:
     def classify(self, question: str) -> IntentResult:
         try:
             result: IntentResult = self.chain.invoke({"question": question})
-            logger.info(f"[Router] 意图={result.intent} | 置信度={result.confidence} | 理由={result.reason}")
+            logger.info(f"[Router] 意图={result.intents} | 置信度={result.confidence} | 理由={result.reason}")
             return result
         except Exception as e:
             logger.warning(f"[Router] 分类失败，默认knowledge_qa: {str(e)}")
-            return IntentResult(intent="knowledge_qa", confidence=0.0, reason="分类失败兜底")
+            return IntentResult(intents=["knowledge_qa"], confidence=0.0, reason="分类失败兜底")
     def _rewrite_query(self, query: str, history: list) -> str:
         if len(query) >= 20 or not history:
             return query
@@ -82,7 +81,7 @@ class IntentRouter:
         result = self.classify(rewritten)
         return (result, rewritten)
 
-def route_tools(intent: str, all_tools: list[BaseTool]) -> list[BaseTool]:
+def route_tools(intents: list[str], all_tools: list[BaseTool]) -> list[BaseTool]:
     """
     根据意图过滤可调用的工具子集
     :param intent:
@@ -99,7 +98,7 @@ def route_tools(intent: str, all_tools: list[BaseTool]) -> list[BaseTool]:
         "small_talk": [],
     }
 
-    allowed_names = TOOL_MAP.get(intent, ["rag_summarize"])
-    allowed_tools = [t for t in all_tools if t.name in allowed_names]
-    logger.info(f"[Router] 意图={intent} | 可用工具={[t.name for t in allowed_tools]}")
-    return allowed_tools
+    allowed_names = set()
+    for intent in intents:
+        allowed_names.update(TOOL_MAP.get(intent, []))
+    return [t for t in all_tools if t.name in allowed_names]

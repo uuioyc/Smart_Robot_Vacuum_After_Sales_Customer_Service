@@ -11,7 +11,7 @@ from agent.tools.agent_tools import get_user_location, get_current_month
 from agent.tools.agent_tools import fetch_external_data, fill_context_for_report
 from agent.tools.middleware import log_before_model, monitor_tool, report_prompt_switch
 from langchain_core.messages import AIMessageChunk, HumanMessage
-from agent.tools.agent_tools import get_rag_sources
+from agent.tools.agent_tools import clear_rag_sources,get_rag_sources
 
 SUMMARY_UPDATE_INTERVAL = 3   # 每 3 轮更新一次摘要
 
@@ -70,7 +70,6 @@ class ReactAgent:
     def execute_stream(self, query: str, session_id: str = None, history: list = None, user_id=None):
         # ===== 清空本轮开始前的 sources（防止继承上一轮）=====
         if session_id:
-            from agent.tools.agent_tools import clear_rag_sources
             clear_rag_sources(str(session_id))
 
 
@@ -78,20 +77,24 @@ class ReactAgent:
         intent_result, re_written = self.router.classify_with_history(query, history)
 
         # ===== 2. 工具路由 =====
-        allowed_tools = route_tools(intent_result.intent, self.all_tools)
+        allowed_tools = route_tools(intent_result.intents, self.all_tools)
 
-        # ===== 3. 分支处理 =====
-        if intent_result.intent == "small_talk":
+        intents = intent_result.intents  # 列表
+
+        if intents == ["small_talk"]:
+            # 纯闲聊
             agent = create_agent(
                 model=chat_model,
                 system_prompt=self.system_prompt,
                 middleware=self.middleware,
                 tools=[]
             )
-        elif intent_result.intent == 'usage_report':
+        elif intents == ["usage_report"]:
+            # 纯报告 → 状态机
             yield from self.workflow.run_stream(re_written)
             return
         else:
+            # 其他（含复合意图）→ ReAct
             agent = create_agent(
                 model=chat_model,
                 system_prompt=self.system_prompt,
@@ -117,6 +120,23 @@ class ReactAgent:
 
             for msg in recent:
                 messages.append({"role": msg["role"], "content": msg["content"]})
+
+        # ===== 如果意图包含 usage_report，主动注入使用记录 =====
+        if "usage_report" in intent_result.intents and user_id:
+            try:
+                from agent.tools.agent_tools import fetch_external_data, get_current_month
+                month = get_current_month.invoke({})
+                # 用 user_id 映射成模拟 ID（1001-1009）
+                mock_id = f"100{user_id}"
+                record = fetch_external_data.invoke({"user_id": mock_id, "month": month})
+                if record:
+                    messages.append({
+                        "role": "system",
+                        "content": f"【用户 {month} 的使用记录】\n{record}"
+                    })
+                    logger.info(f"[ReactAgent] 主动注入使用记录: user={mock_id}, month={month}")
+            except Exception as e:
+                logger.warning(f"[ReactAgent] 注入使用记录失败: {e}")
 
         messages.append({"role": "user", "content": re_written})
 
@@ -250,7 +270,7 @@ if __name__ == '__main__':
     for q in queries:
         print(f"\n{'=' * 50}\n用户：{q}\n{'=' * 50}")
         resp = ""
-        for chunk in agent.execute_stream(q, history=history):
+        for chunk in agent.execute_stream(q, session_id="test", history=history, user_id="1"):
             print(chunk, end="", flush=True)
             resp += chunk
         history.append({"role": "user", "content": q})
