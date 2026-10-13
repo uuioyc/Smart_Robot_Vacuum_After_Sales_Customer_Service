@@ -1,5 +1,5 @@
+import re
 from langchain.agents import create_agent
-
 from agent.report_workflow import ReportWorkflow
 from model.factory import chat_model
 from rag.router import IntentRouter, route_tools
@@ -117,27 +117,64 @@ class ReactAgent:
         input_dict = {"messages":messages}
         config = {"configurable": {"session_id": session_id}} if session_id else {}
 
-        # 1. 使用 messages 模式，只吐出增量碎片
         chunks = agent.stream(
             input=input_dict,
             stream_mode="messages",
-            context={"report": False},
+            context={"report": False},  # ← 别忘这个
             config=config
         )
 
+        thinking_buffer = ""
+        answer_started = False
+        answer_buffer = ""  # 已发送的答案内容
+
         for chunk in chunks:
-            # 2. messages 模式下，chunk 是一个元组：(message_chunk, metadata)
             msg, metadata = chunk
-            if not isinstance(msg, AIMessageChunk): #如果不是AIMessageChunk直接跳过
+            if not isinstance(msg, AIMessageChunk):
                 continue
-            if getattr(msg, "tool_call_chunks", None):
+            # 如果有 tool_calls 或 tool_call_chunks，说明这条消息是工具调用阶段，跳过
+            if getattr(msg, "tool_call_chunks", None) or getattr(msg, "tool_calls", None):
                 continue
             if getattr(msg, "tool_calls", None):
                 continue
-            if msg.content:
-                yield msg.content
+            if not msg.content:
+                continue
 
+            content = msg.content
 
+            # 循环内 answer_started 之后：
+            if not answer_started:
+                thinking_buffer += content
+
+                if "</thinking>" in thinking_buffer:
+                    parts = thinking_buffer.split("</thinking>", 1)
+                    thinking_text = parts[0].replace("<thinking>", "").strip()
+                    answer_text = parts[1] if len(parts) > 1 else ""
+
+                    if thinking_text:
+                        yield {"type": "thinking", "content": thinking_text}
+
+                    answer_started = True
+                    if answer_text:
+                        answer_buffer = answer_text
+                        yield {"type": "content", "content": answer_text}
+                else:
+                    # thinking 阶段（保持你现在的逻辑）
+                    ...
+            else:
+                # ===== answer 阶段：做 diff =====
+                new_content = content
+                if new_content.startswith(answer_buffer):
+                    # 全量返回 → 只 yield 新增部分
+                    delta = new_content[len(answer_buffer):]
+                    answer_buffer = new_content
+                else:
+                    # 增量返回 → 直接 yield
+                    delta = new_content
+                    answer_buffer += new_content
+
+                if delta:
+                    yield {"type": "content", "content": delta}
 if __name__ == '__main__':
     agent = ReactAgent()
     history = []

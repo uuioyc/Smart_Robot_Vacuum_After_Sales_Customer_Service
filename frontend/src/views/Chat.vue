@@ -1,37 +1,90 @@
 <template>
+  <div class="app-layout">
+    <!-- ===== 左侧栏 ===== -->
+    <div class="sidebar">
+      <button class="new-chat-btn" @click="handleNewChat">
+        + 新建对话
+      </button>
 
-  <div class="chat-container">
-    <div class="top-bar">
-      <span>欢迎，{{ username }}</span>
-      <button class="logout-btn" @click="handleLogout">退出登录</button>
-    </div>
-
-    <h1>扫地机器人客服</h1>
-    <div class="messages">
-      <div v-for="(msg, idx) in messages" :key = idx :class = "['message', msg.role]">
-        <!--['message', msg.role]是一个数组，代表有两个class-->
-        <div class="bubble">
-          <span>{{msg.content}}</span>
+      <div class="session-list">
+        <div
+          v-for="s in sessions"
+          :key="s.id"
+          :class="['session-item', { active: s.id === currentSessionId }]"
+          @click="handleSwitchSession(s.id)"
+        >
+          <span class="session-title">{{ s.title }}</span>
+          <button class="delete-btn" @click.stop="handleDeleteSession(s.id)">×</button>
         </div>
       </div>
     </div>
-    <div class="input-area">
-      <input
-        v-model="input"
-        @keyup.enter="send"
-        placeholder="请输入问题..."
-        :disabled="loading"
-      />
-      <button @click="send" :disabled="loading">
-        {{loading? '思考中...': '发送'}}
-      </button>
+
+    <!-- ===== 右侧聊天区 ===== -->
+    <div class="chat-container">
+      <div class="top-bar">
+        <span>欢迎，{{ username }}</span>
+        <button class="logout-btn" @click="handleLogout">退出登录</button>
+      </div>
+
+      <div class="messages">
+    <!-- 空对话时显示引导页 -->
+    <div v-if="messages.length === 0" class="welcome">
+      <h2>👋 你好，我是扫地机器人客服</h2>
+      <p class="welcome-sub">可以试试问我：</p>
+      <div class="suggestions">
+        <div
+          v-for="(q, idx) in suggestions"
+          :key="idx"
+          class="suggestion"
+          @click="sendSuggestion(q)"
+        >
+          {{ q }}
+        </div>
+      </div>
+    </div>
+
+    <!-- 有消息时正常显示 -->
+    <div
+      v-for="(msg, idx) in messages"
+      :key="idx"
+      :class="['message', msg.role]"
+    >
+      <div class="bubble">
+        <!-- 加载动画：思考中和答案都为空时显示 -->
+        <span v-if="msg.role === 'assistant' && !msg.content && !msg.thinking && loading" class="dot-loading">
+          <span></span><span></span><span></span>
+        </span>
+
+        <!-- 思考过程（可折叠） -->
+        <details v-if="msg.thinking" class="thinking-block">
+          <summary>思考过程</summary>
+          <div class="thinking-content">{{ msg.thinking }}</div>
+        </details>
+
+        <!-- 正式答案 -->
+        <span v-if="msg.content">{{ msg.content }}</span>
+    </div>
+    </div>
+  </div>
+
+      <div class="input-area">
+        <input
+          v-model="input"
+          @keyup.enter="send"
+          placeholder="请输入问题..."
+          :disabled="loading"
+        />
+        <button @click="send" :disabled="loading">
+          {{ loading ? '思考中...' : '发送' }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 
 <script setup>
-import {ref} from 'vue'
+import {ref, onMounted} from 'vue'
 import { useRouter } from 'vue-router'
 
 //ref让数据变成响应式,当value改变时，用到他的模版计算属性等等自动更新
@@ -40,17 +93,120 @@ import { useRouter } from 'vue-router'
 const input = ref('')
 const messages = ref([])
 const loading = ref(false)
-const token = localStorage.getItem('token')
 const router = useRouter()
-const currentSessionId = ref(null)     // 当前会话 id
+const currentSessionId = ref(
+    localStorage.getItem("session_id")
+    ? parseInt(localStorage.getItem("session_id"))
+    : null
+)     // 当前会话 id
+const username = ref(localStorage.getItem("username") || '用户')
+const sessions = ref([])
+// ===== 引导页的示例问题 =====
+const suggestions = [
+  '滤网多久换一次？',
+  '机器人不充电怎么办？',
+  '小户型适合买什么型号？',
+  '最近潮湿该怎么保养？'
+]
 
+// ===== 点击示例 → 自动填入并发送 =====
+const sendSuggestion = (text) => {
+  input.value = text
+  send()
+}
 const handleLogout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('user_id')
   localStorage.removeItem('username')
+  localStorage.removeItem("session_id")
   router.push('/login')
 }
 
+onMounted(async () => {
+  await loadSessions()
+  if(!currentSessionId.value) return
+  try{
+    const token = localStorage.getItem("token")
+    const res = await fetch(
+        `http://localhost:8080/api/sessions/${currentSessionId.value}/messages`,
+        {
+          headers:{'Authorization': `Bearer ${token}`}
+        }
+    )
+    if(res.status == 401){
+      localStorage.removeItem("token")
+      router.push("/login")
+      return
+    }
+    if(!res.ok) return
+    const data = await res.json()
+    messages.value = data.map(m => ({
+      role: m.role,
+      content: m.content
+    }))
+  } catch (e) {
+    console.error("加载历史消息失败:", e)
+  }
+})
+
+const loadSessions = async () => {
+  const token = localStorage.getItem("token")
+  try{
+    const res = await fetch('http://localhost:8080/api/sessions',
+        {headers: { 'Authorization': `Bearer ${token}` }}
+    )
+    if(!res.ok) return
+    sessions.value = await res.json()
+  }catch (e) {
+    console.error("拉取会话失败:", e)
+  }
+}
+
+const handleNewChat = () =>{
+  currentSessionId.value = null
+  localStorage.removeItem("session_id")
+  messages.value = []
+}
+const handleSwitchSession = async (sessionId) =>{
+  if(sessionId == currentSessionId.value) return
+  currentSessionId.value = sessionId
+  localStorage.setItem("session_id", sessionId)
+  const token = localStorage.getItem("token")
+
+  try{
+    const res = await fetch(
+        `http://localhost:8080/api/sessions/${sessionId}/messages`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    )
+    if(!res.ok) return
+    const data = await res.json()
+    messages.value = data.map(m => ({
+      role: m.role,
+      content: m.content
+    }))
+  }catch (e) {
+    console.error("加载消息失败:", e)
+  }
+}
+
+const handleDeleteSession = async (sessionId) => {
+  if(!confirm('确定删除这个会话？')) return
+  const token = localStorage.getItem("token")
+  try{
+    await fetch(`http://localhost:8080/api/sessions/${sessionId}`,{
+      method:'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    await loadSessions()
+    if(sessionId === currentSessionId.value){
+      currentSessionId.value = null
+      localStorage.removeItem("session_id")
+      messages.value = []
+    }
+  }catch (e) {
+    console.error("删除失败：", e)
+  }
+}
 const send = async () =>{
 /*
 *   async的作用
@@ -62,7 +218,7 @@ const send = async () =>{
 * */
   //空输入 或 正在加载
   if(!input.value.trim() || loading.value) return
-
+  const token = localStorage.getItem('token')
   const userMessage = input.value
   messages.value.push({role:'user', content: userMessage})
 
@@ -70,12 +226,13 @@ const send = async () =>{
   loading.value = true
 
   //先放一条空的AI消息，等会填字
-  messages.value.push({role:'assistant', content:''})
+  messages.value.push({role:'assistant', content:'', thinking:''})
 
   // 组装历史消息（去掉最后两条：当前用户消息 + 空 AI 消息）
   const history = messages.value.slice(0, -2).map(m => ({
     role:m.role,
-    content:m.content
+    content:m.content,
+    thinking:''
   }))
 
   try{
@@ -121,9 +278,15 @@ const send = async () =>{
           const obj = JSON.parse(data)
           if(obj.type == 'session_id'){
             currentSessionId.value = obj.session_id
+            localStorage.setItem("session_id", obj.session_id)
             continue
           }
-          if (obj.content){
+          // 思考过程 → 覆盖（不是追加）
+          if (obj.type === 'thinking' && obj.content){
+            messages.value[messages.value.length - 1].thinking = obj.content
+          }
+          // 正式答案 → 追加
+          if (obj.type === 'content' && obj.content){
             messages.value[messages.value.length - 1].content += obj.content
           }
         }catch (e) {}
@@ -298,5 +461,138 @@ h1 {
 
 .logout-btn:hover {
   background: #e0e0e0;
+}
+
+/* ===== 整体布局：左右两栏 ===== */
+.app-layout {
+  display: flex;
+  height: 100vh;
+}
+
+/* ===== 左侧栏 ===== */
+.sidebar {
+  width: 260px;
+  background: #f7f7f8;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+
+.new-chat-btn {
+  padding: 10px;
+  background: white;
+  color: #333;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-bottom: 12px;
+  transition: background 0.2s;
+}
+
+.new-chat-btn:hover {
+  background: #f0f0f0;
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.session-item {
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: #333;
+}
+
+.session-item:hover {
+  background: #ececec;
+}
+
+.session-item.active {
+  background: #e0e0e0;
+  font-weight: 500;
+}
+
+.session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  display: none;
+  line-height: 1;
+}
+
+.session-item:hover .delete-btn {
+  display: block;
+}
+
+.delete-btn:hover {
+  color: #e74c3c;
+}
+
+/* ===== 右侧聊天区（原来是 chat-container）===== */
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 20px 20px;
+  overflow: hidden;
+}
+
+/* ===== 思考过程折叠 ===== */
+.thinking-block {
+  margin-bottom: 10px;
+  border-left: 3px solid #ddd;
+  padding-left: 10px;
+}
+
+.thinking-block summary {
+  cursor: pointer;
+  color: #888;
+  font-size: 13px;
+  user-select: none;
+  list-style: none;
+}
+
+.thinking-block summary::before {
+  content: '▶ ';
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+.thinking-block[open] summary::before {
+  content: '▼ ';
+}
+
+.thinking-block summary:hover {
+  color: #333;
+}
+
+.thinking-content {
+  margin-top: 8px;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: #f9f9f9;
+  padding: 10px;
+  border-radius: 6px;
 }
 </style>

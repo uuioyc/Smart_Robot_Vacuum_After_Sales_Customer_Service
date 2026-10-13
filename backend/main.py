@@ -257,7 +257,7 @@ def chat(
     db.add(user_msg)
     db.commit()
     def event_stream():
-        full_response = ""
+        full_response = "" #入数据库的消息
         inner_db = SessionLocal()
         """
             FastAPI 的 Depends(get_db) 有个特点：
@@ -273,8 +273,9 @@ def chat(
                 session_id=str(session_id),
                 history=req.history
         ):
-            full_response += chunk
-            yield f"data: {json.dumps({'content':chunk}, ensure_ascii=False)}\n\n" #SSE格式
+            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n" #SSE格式
+            if chunk['type'] == 'content':
+                full_response += chunk['content']
             #SSE是一种格式协议
         ai_msg = Message(session_id = session_id, role = "assistant", content = full_response)
         inner_db.add(ai_msg)
